@@ -85,7 +85,7 @@ print("\n Rows: \n")
 for i, row in data.iterrows():
 
     if not pd.isna(row["Status"]):  # Checking if status is not empty first.
-        print(f"Row {i + 1}: {row['Client Name']} verified already")
+        print(f"Row {i + 1}: {row['Client Name']} is verified already")
         continue
 
     print(f"Processing new Client: {row['Client Name']}")
@@ -97,10 +97,13 @@ for i, row in data.iterrows():
 
     # Writing to excel file
 
+    current_time = datetime.now().strftime("%m-%d-%Y @ %I:%M%p")
     data.at[i, 'Status'] = test_status
     data.at[i, 'Expiration Date'] = test_expiry
-    data.at[i, 'Date Verified'] = datetime.now().strftime("%m-%d-%Y")
+    data.at[i, 'Date Verified'] = current_time
 
 data.to_excel(excel_file, index=False)
-print("\nUpdated Excel Data: \n")
-print(data)
+
+print("Opening Excel file!")
+os.system(f'start "" "{excel_file}"')  # This will open the updated Excel file after processing is complete.
+
