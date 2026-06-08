@@ -8,3 +8,7 @@ __pycache__/
 
 # Ignore the local backup folder we created
 backup/
+
+#Ignore the .env file that contains the API key
+.env
+
