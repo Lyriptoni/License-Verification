@@ -1,0 +1,10 @@
+# Ignore Excel data files (keeps client names private!)
+*.xlsx
+*.xls
+
+# Ignore Python memory/cache folders
+__pycache__/
+*.pyc
+
+# Ignore the local backup folder we created
+backup/
