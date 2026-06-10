@@ -185,21 +185,60 @@ def run_license_verification(is_headless):
     print("\nExcel file loaded successfully.\n")
     data = clean_excel_data(raw_data)
 
+    # Allows User to choose how to complete the task:
+
+    print("==================================================")
+    print("How Do We Want to Work Today?:")
+    print("==================================================\n")
+    print("1. AI Does Most of the Work (Automated Research and Verification via Claude AI)\n")
+    print("2. I'll Do the Research Myself, thank you! (You do the research, Claude assist with data entry)")
+    print("=======================================================================================================\n")
+    mode_choice = input("Your choice is? (1 or 2):\n\n ").strip()
+
     # Tracking progress counters:
     count_processed = 0
     count_skipped = 0
 
-    print("\n 🤖Calling Claude for assistance... 🤖\n")
+    if mode_choice == "1":
+        print("\n 🤖Calling Claude for assistance... 🤖\n")
 
     for i, row in data.iterrows():
 
         # Checking if status is not empty first.
         if str(row["Status"]).strip() != "":
             print(
-                f"Row {i + 1}: {row['Client Name']}'s status is already set. Completed already? Skipping...")
+                f"Row {i + 1}: {row['Client Name']}'s status is already set. Completed already? Skipping...\n")
             count_skipped += 1
             continue
 
+        # Manual Mode
+        if mode_choice == "2":
+            print(
+                "Rapid Fire Mode: \nHere's what we're working with: \n")
+            print(f"Row {i+1}: Data Entry for {row['Client Name']}!\n")
+            print(
+                f"Instituion: {row['Institution']} | {row['Location']} | License ID: {row['License ID']}")
+            print(
+                "===========================================================================================\n")
+            print(
+                "We're looking for the expiration date... Or, press Enter to skip this row!:\n")
+            user_date_entered = input("Enter the Expiration Date:\n ")
+
+            if user_date_entered.lower() in ["exit", "q"]:
+                print(f"Exit requested, saving progress at row {i}")
+                count_processed -= 1
+                break
+
+            current_time = datetime.now().strftime("%m-%d-%Y @ %I:%M%p")
+            data.at[i, 'Status'] = "Manually Processed"
+            data.at[i, 'Expiration Date'] = web_utils.date_correcter(
+                user_date_entered)
+            data.at[i, 'Date Verified'] = str(current_time)
+            data.at[i, 'Database'] = "Manual Entry Deck"
+            count_processed += 1
+            continue
+
+        # Automated Mode
         print(f"Processing new Client: {row['Client Name']}")
         count_processed += 1
 
@@ -208,6 +247,13 @@ def run_license_verification(is_headless):
         lisc_name = row['License Name']
         lisc_id = row['License ID']
         lisc_type = row.get('License Type', '')
+
+        # Trying to Save AI Credits by skipping empty row templates
+        if not str(lisc_institute).strip() and not str(lisc_location).strip():
+            print(f"Row {i+1} appears empty, skipping.")
+            count_processed -= 1
+            count_skipped += 1
+            continue
 
         claude_response = ask_claude_for_license_verification(
             lisc_institute, lisc_location, lisc_name, lisc_type)
@@ -218,12 +264,13 @@ def run_license_verification(is_headless):
 
         if verify_method == "Manual Required":
             print(
-                f"\n Row {i+1}: {row['Client Name']} requires a secure portal check ({target_database}). Please choose one of the following:")
-            print("1. Assist program (Program opens browser, you log in/search, and you log results, program adds result to excel)")
-            print("2. Flag (Program marks as a 'Come Back To' and moves on)")
-            print("3. Skip Row  (No change, program skips row.)")
+                f"\n Row {i+1}: {row['Client Name']} requires a secure portal check ({target_database}). Please choose one of the following:\n")
+            print("1. Assist program (Program opens browser, you log in/search, and you log results, program adds result to excel)\n")
+            print("2. Flag (Program marks as a 'Come Back To' and moves on)\n")
+            print("3. Skip Row  (No change, program skips row.)\n")
+            print("4. Exit Program")
 
-            choice = input("Select an option (1, 2, or 3): ").strip()
+            choice = input("Select an option (1, 2, 3, or 4): \n").strip()
 
             if choice == "1":
                 scraped_expiration = web_utils.manual_login_help(
@@ -233,12 +280,18 @@ def run_license_verification(is_headless):
                 data.at[i, 'Expiration Date'] = str(scraped_expiration)
 
             elif choice == "2":
-                print("Flagging row for later manual entry...")
+                print("Flag Requested! Flagging row for later manual entry...")
                 data.at[i, 'Status'] = "Manual Verification Required"
                 data.at[i, 'Expiration Date'] = "See Portal"
 
+            elif choice == "4" or choice.lower() in ["exit", "q"]:
+                print(f"Exit Requested! Saving Progress at row {i}! ByeBye!")
+                count_processed -= 1
+                break
+
             else:
-                print("Skipping row calculations entirely...")
+                print(
+                    f"Skip Requested! Skipping row {i+1} calculations entirely...\n")
                 count_processed -= 1
                 count_skipped += 1
                 continue
@@ -248,6 +301,7 @@ def run_license_verification(is_headless):
                 database_type=target_database,
                 search_query=search_term,
                 license_id=lisc_id,
+                license_location=lisc_location,
                 is_headless=is_headless
             )
             current_time = datetime.now().strftime("%m-%d-%Y @ %I:%M%p")
