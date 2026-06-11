@@ -12,3 +12,7 @@ backup/
 #Ignore the .env file that contains the API key
 .env
 
+#Ignore Compiled Artifact Binaries
+build/
+dist/
+*.spec
