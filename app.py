@@ -18,6 +18,7 @@ from tkinter import filedialog, Tk
 from datetime import datetime
 from dotenv import load_dotenv
 from anthropic import Anthropic
+from config import ExcelColumns
 
 
 load_dotenv()  # Load environment variables from .env file
@@ -95,10 +96,12 @@ def clean_excel_data(data):
     filling missing values with empty strings, and standardizing data types."""
 
     columns_cleaned = [
-        "Client Name", "Institution",
-        "Location", "License Name", "License Type", "Status",
-        "Expiration Date", "Next Review Date",
-        "Date Verified", "Database"
+        ExcelColumns.CLIENT, ExcelColumns.INSTITUTION, ExcelColumns.LOCATION,
+        ExcelColumns.LIC_NAME, ExcelColumns.ON_NURSYS, ExcelColumns.LIC_ID,
+        ExcelColumns.LIC_TYPE, ExcelColumns.LIC_STATUS, ExcelColumns.VERIF_STATUS,
+        ExcelColumns.ISSUE_DATE, ExcelColumns.ACCREDITED, ExcelColumns.EXP_DATE,
+        ExcelColumns.REVIEW_DATE, ExcelColumns.DATE_VERIFIED, ExcelColumns.COMPACT,
+        ExcelColumns.DATABASES
     ]
 
     for column_label in columns_cleaned:
@@ -141,7 +144,7 @@ def color_excel(file_path):
         # Find status column
         status_col = None
         for col in range(1, ws.max_column + 1):
-            if ws.cell(row=1, column=col).value == "Status":
+            if ws.cell(row=1, column=col).value == ExcelColumns.VERIF_STATUS:
                 status_col = col
                 break
 
@@ -282,8 +285,8 @@ def fetch_parse_data(row, search_term, target_database, is_headless):
     raw_scraped_collection = web_utils.search_registry_for_license(
         database_type=target_database,
         search_query=search_term,
-        license_id=row['License ID'],
-        license_location=row['Location'],
+        license_id=row[ExcelColumns.LIC_ID],
+        license_location=row[ExcelColumns.LOCATION],
         is_headless=is_headless
     )
 
@@ -291,10 +294,10 @@ def fetch_parse_data(row, search_term, target_database, is_headless):
         "Extracting the official date...\n", type_effects=True, delay=0.05)
     scraped_expiration = ask_claude_to_parse_scraped_text(
         raw_scraped_collection,
-        row['Institution'],
-        row['License Name'],
-        row.get('License Type', 'N/A'),
-        row['Location']
+        row[ExcelColumns.INSTITUTION],
+        row[ExcelColumns.LIC_NAME],
+        row.get(ExcelColumns.LIC_TYPE, 'N/A'),
+        row[ExcelColumns.LOCATION]
     )
 
     # Setting Defaults to fall back on
@@ -351,11 +354,11 @@ def process_auto_route(row, i, is_headless):
     If both fail or it's unknown credential, it will require manual required.
     """
 
-    lisc_institute = row['Institution']
-    lisc_location = row['Location']
-    lisc_name = row['License Name']
-    lisc_id = row['License ID']
-    lisc_type = row.get('License Type', '')
+    lisc_institute = row[ExcelColumns.INSTITUTION]
+    lisc_location = row[ExcelColumns.LOCATION]
+    lisc_name = row[ExcelColumns.LIC_NAME]
+    lisc_id = row[ExcelColumns.LIC_ID]
+    lisc_type = row.get(ExcelColumns.LIC_TYPE, '')
 
     # Skip empty row templates to save API credits
     if not str(lisc_institute).strip() and not str(lisc_location).strip():
@@ -455,9 +458,9 @@ def run_license_verification(is_headless):
 
     for i, row in data.iterrows():
         # Checking if status is not empty first.
-        if str(row["Status"]).strip() != "":
+        if str(row[ExcelColumns.VERIF_STATUS]).strip() != "":
             web_utils.print_style(
-                f"Row {i + 1}: {row['Client Name']}'s status is already set. Completed already? Skipping...\n")
+                f"Row {i + 1}: {row[ExcelColumns.CLIENT]}'s status is already set. Completed already? Skipping...\n")
             count_skipped += 1
             continue
 
@@ -472,9 +475,9 @@ def run_license_verification(is_headless):
             web_utils.print_style(
                 "===================================================================")
             web_utils.print_style(
-                f"Row {i+1}: Data Entry for {row['Client Name']}!\n")
+                f"Row {i+1}: Data Entry for {row[ExcelColumns.CLIENT]}!\n")
             web_utils.print_style(
-                f"Instituion: {row['Institution']} | {row['Location']} | License ID: {row['License ID']}")
+                f"Institution: {row[ExcelColumns.INSTITUTION]} | {row[ExcelColumns.LOCATION]} | License ID: {row[ExcelColumns.LIC_ID]}")
             print(
                 "===========================================================================================\n")
             web_utils.print_style(
@@ -487,17 +490,17 @@ def run_license_verification(is_headless):
                 count_processed -= 1
                 break
 
-            data.at[i, 'Status'] = "Manually Processed"
-            data.at[i, 'Expiration Date'] = web_utils.date_correcter(
+            data.at[i, ExcelColumns.VERIF_STATUS] = "Manually Processed"
+            data.at[i, ExcelColumns.EXP_DATE] = web_utils.date_correcter(
                 user_date_entered)
-            data.at[i, 'Date Verified'] = str(current_time)
-            data.at[i, 'Database'] = "Manual Entry Deck"
+            data.at[i, ExcelColumns.DATE_VERIFIED] = str(current_time)
+            data.at[i, ExcelColumns.DATABASES] = "Manual Entry Deck"
             count_processed += 1
             continue
 
         # Automated Mode
         web_utils.print_style(
-            f"Processing new Client: {row['Client Name']}", delay=0.05)
+            f"Processing new Client: {row[ExcelColumns.CLIENT]}", delay=0.05)
         count_processed += 1
 
         # Row context
@@ -515,7 +518,7 @@ def run_license_verification(is_headless):
         # Manual Choice handles
         if result_status == "Manual Required":
             web_utils.print_style(
-                f"\n Row {i+1}: {row['Client Name']} requires user assistance! ({active_db}). Please choose one of the following:\n", type_effects=True, delay=0.05)
+                f"\n Row {i+1}: {row[ExcelColumns.CLIENT]} requires user assistance! ({active_db}). Please choose one of the following:\n", type_effects=True, delay=0.05)
             web_utils.print_style(
                 "1. Assist program (Program opens browser, you log in/search, and you log results, program adds result to excel)\n", delay=0.05)
             web_utils.print_style(
@@ -539,21 +542,22 @@ def run_license_verification(is_headless):
                     "\nAssist Program selected!\n", type_effects=True)
 
                 scraped_expiration = web_utils.manual_login_help(active_db,
-                                                                 row['Institution'], row['License ID'],
-                                                                 row['License Name'], row['Location']
+                                                                 row[ExcelColumns.INSTITUTION], row[ExcelColumns.LIC_ID],
+                                                                 row[ExcelColumns.LIC_NAME], row[ExcelColumns.LOCATION]
                                                                  )
-                data.at[i, 'Status'] = "Verified (Manual Assist)"
-                data.at[i, 'Expiration Date'] = str(scraped_expiration)
-                data.at[i, 'Date Verified'] = str(current_time)
-                data.at[i, 'Database'] = str(active_db)
+                data.at[i,
+                        ExcelColumns.VERIF_STATUS] = "Verified (Manual Assist)"
+                data.at[i, ExcelColumns.EXP_DATE] = str(scraped_expiration)
+                data.at[i, ExcelColumns.DATE_VERIFIED] = str(current_time)
+                data.at[i, ExcelColumns.DATABASES] = str(active_db)
 
             elif choice == "2":
                 web_utils.print_style(
                     "\nFlag Requested! Flagging row for later manual entry...\n", delay=0.05)
-                data.at[i, 'Status'] = "Manual Verification Required"
-                data.at[i, 'Expiration Date'] = "COME BACK TO"
-                data.at[i, 'Date Verified'] = str(current_time)
-                data.at[i, 'Database'] = str(active_db)
+                data.at[i, ExcelColumns.VERIF_STATUS] = "Manual Verification Required"
+                data.at[i, ExcelColumns.EXP_DATE] = "COME BACK TO"
+                data.at[i, ExcelColumns.DATE_VERIFIED] = str(current_time)
+                data.at[i, ExcelColumns.DATABASES] = str(active_db)
 
             elif choice == "4" or choice.lower() in ["exit", "q"]:
                 web_utils.print_style(
@@ -568,14 +572,17 @@ def run_license_verification(is_headless):
                 continue
 
         # Saving Auto Progress
-        data.at[i, 'Database'] = str(active_db)
-        data.at[i, 'Status'] = str(result_status)
-        data.at[i, 'Expiration Date'] = str(exp_date)
-        data.at[i, 'Next Review Date'] = str(rev_date)
-        data.at[i, 'Date Verified'] = str(current_time)
+        data.at[i, ExcelColumns.DATABASES] = str(active_db)
+        data.at[i, ExcelColumns.VERIF_STATUS] = str(result_status)
+        data.at[i, ExcelColumns.EXP_DATE] = str(exp_date)
+        data.at[i, ExcelColumns.REVIEW_DATE] = str(rev_date)
+        data.at[i, ExcelColumns.DATE_VERIFIED] = str(current_time)
 
         web_utils.print_style(
-            f"♥ Target located: {active_db} | Search Term: {row['Institution']} | Expiration Date: {exp_date} | Next Review Date: {rev_date}\n", delay=0.1)
+            f"♥ Target located: {active_db} | Search Term: {row[ExcelColumns.INSTITUTION]} | Expiration Date: {exp_date} | Next Review Date: {rev_date}\n", delay=0.1)
+
+    # Use Retry Function:
+    data = retry_flagged_rows(data, excel_file, is_headless)
 
     # Saving the updated data back to the Excel file after processing all rows.
     data.to_excel(excel_file, index=False)
@@ -594,6 +601,61 @@ def run_license_verification(is_headless):
             "skipped": count_skipped,
             "total": len(data)
             }
+
+
+def retry_flagged_rows(data, excel_file, is_headless):
+    """
+    Scans the excel for incomplete verifications and offers the user 
+    an option to retry them before finalizing the Excel file.
+    """
+    # Defining what warrants a retry
+    current_time = datetime.now().strftime("%m-%d-%Y @ %I:%M%p")
+    flagged_statuses = ["Unknown / Flagged",
+                        "Manual Verification Required", "Skipped", "ERROR", ""]
+
+    # Checking if there are any that need to be retried.
+    needs_retry = data[ExcelColumns.VERIF_STATUS].isin(flagged_statuses).any()
+
+    if not needs_retry:
+        return data  # Everything is fine.
+
+    # Prompt
+    web_utils.print_style(
+        "\n==================================================")
+    web_utils.print_style(" Check Again Option: ")
+    web_utils.print_style(
+        "==================================================\n")
+    web_utils.print_style(
+        "There are rows marked as Flagged, Skipped, or Error.")
+    retry_choice = input(
+        "Would you like to do these rows now? (y/n): ").strip().lower()
+
+    # Loop
+    if retry_choice == 'y':
+        web_utils.print_style(
+            "\n🔄 Restarting row scan...\n", type_effects=True)
+
+        for i, row in data.iterrows():
+            if row[ExcelColumns.VERIF_STATUS] in flagged_statuses:
+
+                # Temporarily clear the status so the loop doesn't skip it
+                data.at[i, ExcelColumns.VERIF_STATUS] = ""
+
+                # Restart auto route
+                result_status, exp_date, rev_date, active_db = process_auto_route(
+                    row, i, is_headless)
+
+                # Update with new results matching the V1.1 schema
+                data.at[i, ExcelColumns.DATABASES] = str(active_db)
+                data.at[i, ExcelColumns.VERIF_STATUS] = str(result_status)
+                data.at[i, ExcelColumns.EXP_DATE] = str(exp_date)
+                data.at[i, ExcelColumns.REVIEW_DATE] = str(rev_date)
+                data.at[i, ExcelColumns.DATE_VERIFIED] = str(current_time)
+
+                web_utils.print_style(
+                    f"♥ Retry completed for row {i+1}\n", delay=0.1)
+
+    return data
 
 
 def summary_report(progress):

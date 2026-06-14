@@ -68,3 +68,23 @@ def config_browser():
     time.sleep(1.5)
 
     return is_headless
+
+
+class ExcelColumns:
+    """Variables for all the Column Labels to use in the main code"""
+    CLIENT = "Client Name"
+    INSTITUTION = "Institution"
+    LOCATION = "Location"
+    LIC_NAME = "License Name"
+    ON_NURSYS = "On NURSYS?"
+    LIC_ID = "License ID"
+    LIC_TYPE = "License Type"
+    LIC_STATUS = "License Status"
+    VERIF_STATUS = "Verification Status"
+    ISSUE_DATE = "License Original Issue Date"
+    ACCREDITED = "Accredited Since"
+    EXP_DATE = "License Expiration Date"
+    REVIEW_DATE = "Next Review Date"
+    DATE_VERIFIED = "Date Verified"
+    COMPACT = "Compact Status"
+    DATABASES = "Databases Used"
