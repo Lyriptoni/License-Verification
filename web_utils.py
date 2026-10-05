@@ -6,8 +6,10 @@ import os
 import time
 import sys
 import re
+import webbrowser
 from playwright.sync_api import sync_playwright
 from dateutil import parser
+from config import load_settings
 
 
 def print_style(text, type_effects=False, delay=0.4):
@@ -58,17 +60,32 @@ def search_registry_for_license(database_type, search_query, license_id, license
 
     _ = license_id
 
+    # Consistent session data directory for Playwright to store cookies and session data
     user_home = os.path.expanduser("~")
-    local_browser_path = os.path.join(
-        user_home, "AppData", "Local", "ms-playwright")
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = local_browser_path
+    session_data_dir = os.path.join(
+        user_home, "AppData", "Local", "CertVerify")
+
+    # Loading settings to determine which browser to use
+    settings = load_settings()
+    browser_path = settings.get("browser_path", "") if settings else ""
+
+    # Headless mode is determined by user settings, defaulting to True if not set
+    is_headless = settings.get("is_headless", True) if settings else True
 
     with sync_playwright() as p:
 
-        browser = p.chromium.launch(
-            headless=is_headless, slow_mo=1000)  # Chromium as a default
+        launch_directory = {"headless": is_headless,
+                            "slow_mo": 1000,
+                            "user_data_dir": session_data_dir}
+        # Only if a browser path is specified in settings, we will use it. Otherwise, Playwright will use its default browser.
+        if browser_path:
+            launch_directory["executable_path"] = browser_path
 
-        page = browser.new_page()  # New tab
+        persistent_page = p.chromium.launch_persistent_context(
+            **launch_directory,
+        )
+
+        page = persistent_page.pages[0]  # New tab
 
         try:
 
@@ -241,6 +258,14 @@ def search_registry_for_license(database_type, search_query, license_id, license
                             "Could not locate institution in CCNE directory.\n", delay=0.05)
                         scraped_text = "Institution not found"
 
+            elif database_type == "NURSYS":
+
+                print_style(
+                    "Going to Nursys Registry...\n(Nurse System)\n", delay=0.15)
+                page.goto(
+                    "https://www.nursys.com/LQC/LQCSearch.aspx")
+                time.sleep(2)
+
             else:
                 print_style(
                     f"Database {database_type} isn't setup for automation. Skipping...\n", delay=0.05)
@@ -254,7 +279,7 @@ def search_registry_for_license(database_type, search_query, license_id, license
 
         finally:
 
-            browser.close()
+            persistent_page.close()
 
 
 def manual_login_help(database_name, search_query, license_id, license_name, license_location):
@@ -266,66 +291,72 @@ def manual_login_help(database_name, search_query, license_id, license_name, lic
     print_style(
         f"Assistance Mode for {database_name} starting....", type_effects=True, delay=0.05)
 
-    with sync_playwright() as p:
+    try:
+        if database_name == "FSMB":
+            database_url = ("https://fsmbb2c.b2clogin.com/fsmbb2c.onmicrosoft.com/b2c_1_signuppolicy/oauth2/v2.0/authorize?client_id=9bf420b1-2396-4698-99c6-338b5c501289&redirect_uri=https%3A%2F%2Fraven.fsmb.org%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639165958063926498.YTE5YjdlNzEtNWFiNC00MDNiLTg5ZTEtM2IxOTQ5MmNlNzYyYTk2YTM4OWUtMTUxNy00NTE1LTgxZTAtNTM4YWZmMjdhYzg1&client_info=1&x-client-brkrver=IDWeb.4.8.0.0&state=CfDJ8KJDpb_f_J5CtPuO10g0pxSL__mK2DUjEd3c-niVCK8obmg0CyYi560IJsKFXRnvechfUZ_PsFKUrecNfvLQGEP_jBV63ISjASv1EBQgxSwLv1nSSdloHTbGBOBxLJUqCUQgh918wZeEbScPsVY-0jkapwhmr2bZ0C47F506MghRTxxlB6rfbEEv9LhwlOYa8Uaf481kobaSIFQBbM0xnv6oxsOqeEk-IFfOCQTA-HqGBfEP5jAgP-7LGwIxZdl45nyp7oRnw3VltJrzc0qj07Ji6qKG1_lT3IdyA30MWY8kDp9a1OwGUanPpWIiPWoCN3O7hbylhvqKOU2vyRrlnhPeCp2J6i2x_0bwRxUZroTDbGZ0gADX8y_9F6my1dk56484CXg2ZH9HRWi_A0HjgtMH614SCr4J1TVRtHyzexan24mjgbXuSO889bn_d2nB6mT6VAIlpc9Kg8DESaSC2SCAzNkoOWq4kupIap6ydbBGusdfiGSyEt8oYnKKvTm9zTNuN1r-8xtNakKSfpeTVNWW0tUCedhhZIUQnhnk2VZfeePC5czIebEqGTPjiZznCBf4cpA8OSnohERDUeyB_OPFvNUNQQ9boSsGLalTpkdSJcBghgWHf17-30N7L2vBssrqLn3SjyuqqrBzMx5qaB0xG6or0IDQoa7AAS3wNCdvojRmYRZRd63crKkJkhR8tYJndGY31sp2kgpgIYdxGjy21u214nWcGNF8ws6QokknIIbdqgP3TtquKsq_pXJeF2BK1Y9iTCruCx_Pjhuu1JUK42Z56C1U0bVjitu9sYPHJ9iH5d-1YvVuBeYSv2nKDB5TovSecfjYCE936p1DsXe6nv6o3sJOKlwOM9tkiyiGjsf1egrN06Tr8HwpRIjqx7Az0kIA5qNXEpN--eTj1umI0Vf4XJPf85hErg6B6nhkU3iOOgWHpDZWEsQ1Qu081v7bRvq9-R7cw9Iz2BRSrBnkyXPdf-FDYbHnQLdu2Bo7gujryOTAELoZ8CcCr1Drjg&x-client-SKU=ID_NET10_0&x-client-ver=8.16.0.0")
 
-        browser = p.chromium.launch(headless=False, slow_mo=500)
-        page = browser.new_page()
+        elif database_name == "NURSYS":
+            print_style("Going to Nursys Registry...\n", delay=0.05)
+            database_url = "https://www.nursys.com/LQC/LQCSearch.aspx"
+            
+        elif database_name == "CCNE":
+            print_style("Going to CCNE Registry...\n", delay=0.05)
+            database_url = "https://directory.ccnecommunity.org/reports/accprog.asp"
+        elif database_name == "DAPIP":
+            print_style("Going to DAPIP Registry...\n", delay=0.05)
+            database_url = "https://ope.ed.gov/dapip/#/home"
 
-        try:
-            if database_name == "FSMB":
-                page.goto("https://fsmbb2c.b2clogin.com/fsmbb2c.onmicrosoft.com/b2c_1_signuppolicy/oauth2/v2.0/authorize?client_id=9bf420b1-2396-4698-99c6-338b5c501289&redirect_uri=https%3A%2F%2Fraven.fsmb.org%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639165958063926498.YTE5YjdlNzEtNWFiNC00MDNiLTg5ZTEtM2IxOTQ5MmNlNzYyYTk2YTM4OWUtMTUxNy00NTE1LTgxZTAtNTM4YWZmMjdhYzg1&client_info=1&x-client-brkrver=IDWeb.4.8.0.0&state=CfDJ8KJDpb_f_J5CtPuO10g0pxSL__mK2DUjEd3c-niVCK8obmg0CyYi560IJsKFXRnvechfUZ_PsFKUrecNfvLQGEP_jBV63ISjASv1EBQgxSwLv1nSSdloHTbGBOBxLJUqCUQgh918wZeEbScPsVY-0jkapwhmr2bZ0C47F506MghRTxxlB6rfbEEv9LhwlOYa8Uaf481kobaSIFQBbM0xnv6oxsOqeEk-IFfOCQTA-HqGBfEP5jAgP-7LGwIxZdl45nyp7oRnw3VltJrzc0qj07Ji6qKG1_lT3IdyA30MWY8kDp9a1OwGUanPpWIiPWoCN3O7hbylhvqKOU2vyRrlnhPeCp2J6i2x_0bwRxUZroTDbGZ0gADX8y_9F6my1dk56484CXg2ZH9HRWi_A0HjgtMH614SCr4J1TVRtHyzexan24mjgbXuSO889bn_d2nB6mT6VAIlpc9Kg8DESaSC2SCAzNkoOWq4kupIap6ydbBGusdfiGSyEt8oYnKKvTm9zTNuN1r-8xtNakKSfpeTVNWW0tUCedhhZIUQnhnk2VZfeePC5czIebEqGTPjiZznCBf4cpA8OSnohERDUeyB_OPFvNUNQQ9boSsGLalTpkdSJcBghgWHf17-30N7L2vBssrqLn3SjyuqqrBzMx5qaB0xG6or0IDQoa7AAS3wNCdvojRmYRZRd63crKkJkhR8tYJndGY31sp2kgpgIYdxGjy21u214nWcGNF8ws6QokknIIbdqgP3TtquKsq_pXJeF2BK1Y9iTCruCx_Pjhuu1JUK42Z56C1U0bVjitu9sYPHJ9iH5d-1YvVuBeYSv2nKDB5TovSecfjYCE936p1DsXe6nv6o3sJOKlwOM9tkiyiGjsf1egrN06Tr8HwpRIjqx7Az0kIA5qNXEpN--eTj1umI0Vf4XJPf85hErg6B6nhkU3iOOgWHpDZWEsQ1Qu081v7bRvq9-R7cw9Iz2BRSrBnkyXPdf-FDYbHnQLdu2Bo7gujryOTAELoZ8CcCr1Drjg&x-client-SKU=ID_NET10_0&x-client-ver=8.16.0.0")
-
-            else:
-                print_style(
-                    f"Performing Google Search for {database_name.upper()}\n", delay=0.05)
-                page.goto(
-                    f"https://www.google.com/search?q={database_name}+verification+portal")
-
-            print_style("\n==================================================")
+        else:
             print_style(
-                f"👋 USER ASSIST MODE ACTIVE FOR: {database_name.upper()}", type_effects=True, delay=0.05)
-            print_style(
-                "===========================================================")
-            print_style(
-                f" • Client:        {search_query}\n", delay=0.05)
-            print_style(
-                f" • License Name:    {license_name}\n", delay=0.05)
-            print_style(
-                f" • Location:    {license_location}\n", delay=0.05)
-            print_style(
-                f" • License ID:    {license_id}\n\n", delay=0.05)
-            print_style(
-                "===========================================================")
+                f"Performing Google Search for {database_name.upper()}\n", delay=0.05)
+            database_url = f"https://www.google.com/search?q={database_name}+verification+portal"
 
-            print_style(
-                "-----------------------------------------------------------")
-            print_style(" INSTRUCTIONS:\n")
-            print_style(" 1. Log into the portal in the opened window.\n",
-                        delay=0.05)
-            print_style(" 2. Find the client's record expiration date.\n",
-                        delay=0.05)
-            print_style(" 3. Type or copy-paste that date below.\n",
-                        delay=0.05)
-            print_style("    (Or just press ENTER with nothing to skip!)\n",
-                        delay=0.05)
-            print_style(
-                "==============================================================\n")
+        print_style(
+            f"Opening {database_name} portal for user assistance...\n", delay=0.05)
+        webbrowser.open(database_url)
 
-            time.sleep(1)
+        print_style("\n==================================================")
+        print_style(
+            f"👋 USER ASSIST MODE ACTIVE FOR: {database_name.upper()}", type_effects=True, delay=0.05)
+        print_style(
+            "===========================================================")
+        print_style(
+            f" • Client:        {search_query}\n", delay=0.05)
+        print_style(
+            f" • License Name:    {license_name}\n", delay=0.05)
+        print_style(
+            f" • Location:    {license_location}\n", delay=0.05)
+        print_style(
+            f" • License ID:    {license_id}\n\n", delay=0.05)
+        print_style(
+            "===========================================================")
 
-            user_date_input = input(
-                "Please enter the expiration date ♥ Thank yooou!\n\nOr Press Enter to skip this row\n")
+        print_style(
+            "-----------------------------------------------------------")
+        print_style(" INSTRUCTIONS:\n")
+        print_style(" 1. Log into the portal in the opened window.\n",
+                    delay=0.05)
+        print_style(" 2. Find the client's record expiration date.\n",
+                    delay=0.05)
+        print_style(" 3. Type or copy-paste that date below.\n",
+                    delay=0.05)
+        print_style("    (Or just press ENTER with nothing to skip!)\n",
+                    delay=0.05)
+        print_style(
+            "==============================================================\n")
 
-            corrected_date = date_correcter(user_date_input)
+        time.sleep(1)
 
-            print_style(
-                f"Recieved: '{corrected_date}'! \nThank you for your help ♥!\n\n Progress Stored", type_effects=True)
+        user_date_input = input(
+            "Please enter the expiration date ♥ Thank yooou!\n\nOr Press Enter to skip this row\n")
 
-            return corrected_date
+        corrected_date = date_correcter(user_date_input)
 
-        except Exception as e:
-            print(f"Help Mode ended unexpectedly: {e}\n")
-            return "Help Mode Error"
+        print_style(
+            f"Recieved: '{corrected_date}'! \nThank you for your help ♥!\n\n Progress Stored", type_effects=True)
 
-        finally:
-            browser.close()
+        return corrected_date
+
+    except Exception as e:
+        print(f"Help Mode ended unexpectedly: {e}\n")
+        return "Help Mode Error"

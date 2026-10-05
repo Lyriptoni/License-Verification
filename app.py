@@ -1,25 +1,20 @@
 """This script reads an Excel file containing client information, processes each client's license status, and updates the Excel file with the verification results.
 It checks if the client's license is active and updates the status, expiry date, and verification date accordingly."""
 
+from tkinter import filedialog, Tk
+from datetime import datetime
 import os
 import time
 import shutil
+import re
 import pandas as pd
-import config
-import web_utils
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from inputimeout import inputimeout, TimeoutOccurred
-from traceback import print_stack
-from typing import final
-from winsound import PlaySound
-from pydoc import plain
-from tkinter import filedialog, Tk
-from datetime import datetime
 from dotenv import load_dotenv
 from anthropic import Anthropic
-from config import ExcelColumns
-
+from config import ExcelColumns, config_browser
+import web_utils
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -352,57 +347,90 @@ def process_auto_route(row, i, is_headless):
     Determines the pathway for a row and routes it to the correct handler.
     Tries DAPIP Registry and if it fails, then tries CCNE Registry.
     If both fail or it's unknown credential, it will require manual required.
+    Handles multiple institutions, locations, licenses, and IDs in one box
     """
 
-    lisc_institute = row[ExcelColumns.INSTITUTION]
-    lisc_location = row[ExcelColumns.LOCATION]
-    lisc_name = row[ExcelColumns.LIC_NAME]
-    lisc_id = row[ExcelColumns.LIC_ID]
-    lisc_type = row.get(ExcelColumns.LIC_TYPE, '')
+    def text_seperater(text):
 
-    # Skip empty row templates to save API credits
-    if not str(lisc_institute).strip() and not str(lisc_location).strip():
+        cleaned_text = str(text).replace("nan", "").strip()
+        return [x.strip() for x in re.split(r'[;/]', cleaned_text) if x.strip()]
+
+    lisc_institutes = text_seperater(row.get(ExcelColumns.INSTITUTION, ""))
+    lisc_locations = text_seperater(row.get(ExcelColumns.LOCATION, ""))
+    lisc_names = text_seperater(row.get(ExcelColumns.LIC_NAME, ""))
+    lisc_ids = text_seperater(row.get(ExcelColumns.LIC_ID, ""))
+
+    lisc_type = str(row.get(ExcelColumns.LIC_TYPE, '')
+                    ).replace("nan", "").strip()
+
+    maximum_searches = max(len(lisc_institutes), len(lisc_locations),
+                           len(lisc_names), len(lisc_ids), 0)
+
+    if maximum_searches == 0:
         web_utils.print_style(f"Row {i+1} appears empty, skipping.")
         return "Skipped", "N/A", "N/A", "N/A"
 
-    # Asking Claude for search location
-    claude_response = ask_claude_for_license_verification(
-        lisc_institute, lisc_location, lisc_name, lisc_type)
+    all_statuses, all_exp_dates, all_rev_dates, all_dbs = [], [], [], []
 
-    ai_suggest_database, search_term, verify_method = extract_claude_response(
-        claude_response)
+    # Multi-Search Loop
+    for idx in range(maximum_searches):
+        # If a list is too short, reuse the last item in that list (-1) Picks the last item in the list instead
+        inst = lisc_institutes[idx] if idx < len(lisc_institutes) else (
+            lisc_institutes[-1] if lisc_institutes else "Unknown")
+        loc = lisc_locations[idx] if idx < len(lisc_locations) else (
+            lisc_locations[-1] if lisc_locations else "Unknown")
+        lname = lisc_names[idx] if idx < len(lisc_names) else (
+            lisc_names[-1] if lisc_names else "Unknown")
+        lid = lisc_ids[idx] if idx < len(lisc_ids) else (
+            lisc_ids[-1] if lisc_ids else "Unknown")
 
-    # If row needs to be manually or it's location is international
-    if verify_method == "Manual Required" or ai_suggest_database == "International Registry":
-        return "Manual Required", "N/A", "N/A", ai_suggest_database
+        web_utils.print_style(
+            f"\n🔍 Sub-Search {idx+1} of {maximum_searches}: {inst} | {loc} | {lname} | ID: {lid}", delay=0.05)
 
-    # Fetching Data from Claude here:
+        claude_response = ask_claude_for_license_verification(
+            inst, loc, lname, lisc_type)
+        ai_suggest_database, search_term, verify_method = extract_claude_response(
+            claude_response)
 
-    # Starting with DAPIP, as it's the primary site for the purpose of the program.
+        if verify_method == "Manual Required" or ai_suggest_database == "International Registry":
+            all_statuses.append("Manual Required")
+            all_exp_dates.append("N/A")
+            all_rev_dates.append("N/A")
+            all_dbs.append(ai_suggest_database)
+            continue
 
-    final_expire_date, final_review_date = fetch_parse_data(
-        row, search_term, "DAPIP", is_headless)
-    verified_database = "DAPIP"
-
-    # If DAPIP came back with no date, we try CCNE..
-    if final_expire_date == "N/A" and final_review_date == "N/A":
-        # Let user know what's happening before swapping
-        web_utils.print_style("Didn't find anything on DAPIP...\n")
-
+        # Try DAPIP First
         final_expire_date, final_review_date = fetch_parse_data(
-            row, search_term, "CCNE", is_headless)
-        verified_database = "CCNE Portal"
+            row, search_term, "DAPIP", is_headless)
+        verified_database = "DAPIP"
 
-    # Determine Status
-    if final_expire_date != "N/A" or final_review_date != "N/A":
-        if lisc_type != "" and lisc_type != "N/A":
-            current_status = "Verified (Programmatic)"
+        # Try CCNE if DAPIP fails
+        if final_expire_date == "N/A" and final_review_date == "N/A":
+            web_utils.print_style(
+                f"Didn't find {lisc_institutes} on DAPIP... Trying CCNE.\n")
+            final_expire_date, final_review_date = fetch_parse_data(
+                row, search_term, "CCNE", is_headless)
+            verified_database = "CCNE Portal"
+
+        # Status Logic
+        if final_expire_date != "N/A" or final_review_date != "N/A":
+            status = "Verified (Programmatic)" if lisc_type not in [
+                "", "N/A"] else "Verified (Institutional)"
         else:
-            current_status = "Verified (Institutional)"
-    else:
-        current_status = "Unknown / Flagged"
+            status = "Unknown / Flagged"
 
-    return current_status, final_expire_date, final_review_date, verified_database
+        all_statuses.append(status)
+        all_exp_dates.append(final_expire_date)
+        all_rev_dates.append(final_review_date)
+        all_dbs.append(verified_database)
+
+    # SPuts everything back in a single string
+    final_status = " / ".join(all_statuses)
+    final_exp = " / ".join(all_exp_dates)
+    final_rev = " / ".join(all_rev_dates)
+    final_db = " / ".join(all_dbs)
+
+    return final_status, final_exp, final_rev, final_db
 
 
 def run_license_verification(is_headless):
@@ -526,16 +554,34 @@ def run_license_verification(is_headless):
             web_utils.print_style(
                 "3. Skip Row  (No change, program skips row.)\n", delay=0.05)
             web_utils.print_style(
-                "4. Exit Program", delay=0.05)
+                "4. Exit Program\n", delay=0.05)
+            web_utils.print_style(
+                "5. ☕ Pause / Snack Break (Freeze the program until you return)\n", delay=0.05)
 
             # Timeout after 30 seconds, auto-picks Option 2.) Flag
             try:
                 choice = inputimeout(
-                    prompt="Select an option (1, 2, 3, or 4): \n", timeout=30).strip()
+                    prompt="Select an option (1, 2, 3, 4, or 5): \n", timeout=30).strip()
             except TimeoutOccurred:
                 web_utils.print_style(
                     "\n⏰ Timeout reached! Auto-flagging for later...\n", type_effects=True, delay=0.05)
                 choice = "2"
+
+            if choice == "5":
+                web_utils.print_style(
+                    "\n⏸️ Program Paused! Go grab a snack, stretch your legs, or do whatever you need to do.", type_effects=True)
+                web_utils.print_style(
+                    "Take your time. I will be right here waiting for you! ♥")
+
+                # This input() blocks forever until she hits Enter
+                input("\nPress ENTER whenever you are ready to resume...")
+
+                web_utils.print_style(
+                    "\n▶️ Welcome back! Resuming right where we left off...\n", type_effects=True)
+
+                # Re-prompt for the actual action on this row
+                choice = input(
+                    "Would you like to (1) Assist, (2) Flag, or (3) Skip this row? ").strip()
 
             if choice == "1":
                 web_utils.print_style(
@@ -582,7 +628,7 @@ def run_license_verification(is_headless):
             f"♥ Target located: {active_db} | Search Term: {row[ExcelColumns.INSTITUTION]} | Expiration Date: {exp_date} | Next Review Date: {rev_date}\n", delay=0.1)
 
     # Use Retry Function:
-    data = retry_flagged_rows(data, excel_file, is_headless)
+    data = retry_flagged_rows(data, is_headless)
 
     # Saving the updated data back to the Excel file after processing all rows.
     data.to_excel(excel_file, index=False)
@@ -603,7 +649,7 @@ def run_license_verification(is_headless):
             }
 
 
-def retry_flagged_rows(data, excel_file, is_headless):
+def retry_flagged_rows(data, is_headless):
     """
     Scans the excel for incomplete verifications and offers the user 
     an option to retry them before finalizing the Excel file.
@@ -686,9 +732,10 @@ def summary_report(progress):
 def main():
     """Main function to execute the license verification process."""
     clear_console()
-    headless_setting = config.config_browser()
+    is_headless, browser_path = config_browser()
+
     welcome_banner()
-    progress = run_license_verification(headless_setting)
+    progress = run_license_verification(is_headless)
 
     if progress is None:
         return

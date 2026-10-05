@@ -2,7 +2,7 @@ Version 1.1 planned updates:
 
 
 
-\-The Overwrite Toggle: 
+DONE \-The Overwrite Toggle: 
 
 \--Adding a menu option that says "Do you want to retry flagged rows?" at the end of the program.
 
@@ -10,7 +10,7 @@ Version 1.1 planned updates:
 
 \-Add a visible countdown timer for the snack break
 
-\-Expand and Update excel column functions to match update requirements
+DONE \-Expand and Update excel column functions to match update requirements
 
 \--Include "NURSYS confirmation" column, making sure clients are found
 
